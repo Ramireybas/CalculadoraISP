@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Prorrateo - Facturación</title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            background: var(--surface);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            width: 100%;
+            max-width: 800px;
+        }
+
+        h1 { font-size: 1.5rem; margin-top: 0; border-bottom: 2px solid var(--border); padding-bottom: 10px; }
+        h2 { font-size: 1.2rem; color: #475569; margin-bottom: 10px;}
+
+        .form-group {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        label { font-weight: 600; margin-bottom: 5px; font-size: 0.9rem; }
+
+        input, select {
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn {
+            flex: 1; padding: 10px; border: 1px solid var(--border);
+            background: var(--bg); cursor: pointer; border-radius: 6px; font-weight: bold;
+        }
+        .tab-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+        .panel { display: none; padding: 20px; border: 1px solid var(--border); border-radius: 6px; background: #fafafa;}
+        .panel.active { display: block; }
+
+        .btn-calc {
+            background: var(--primary); color: white; border: none;
+            padding: 12px 20px; border-radius: 6px; font-size: 1.1rem;
+            cursor: pointer; width: 100%; margin-top: 20px; transition: 0.2s;
+        }
+        .btn-calc:hover { background: var(--primary-hover); }
+
+        .result-box {
+            margin-top: 20px; padding: 20px; background: #ecfdf5;
+            border: 1px solid #10b981; border-radius: 6px; text-align: center;
+            display: none;
+        }
+        .result-price { font-size: 2.5rem; font-weight: bold; color: #059669; margin: 10px 0;}
+        .result-detail { color: #475569; font-size: 0.9rem; }
+
+        .info-badge {
+            background: #e0f2fe; color: #0284c7; padding: 5px 10px;
+            border-radius: 4px; font-size: 0.8rem; display: inline-block; margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Facturación - Calculadora de Prorrateos</h1>
+
+    <div class="form-group" style="background: #f1f5f9; padding: 15px; border-radius: 8px;">
+        <label for="excelUpload">1. Cargar Planilla de Precios (Excel)</label>
+        <input type="file" id="excelUpload" accept=".xlsx, .xls, .csv">
+        <small id="fileStatus" style="color: #64748b; margin-top: 5px;">Esperando archivo...</small>
+    </div>
+
+    <div class="grid-2">
+        <div class="form-group">
+            <label for="mesFacturacion">2. Mes de Facturación</label>
+            <input type="month" id="mesFacturacion" required>
+            <small id="diasMesInfo" style="color: #64748b; margin-top: 5px;">Días del mes: -</small>
+        </div>
+        <div class="form-group">
+            <label for="localidadInput">3. Localidad (Escriba para buscar)</label>
+            <input list="listaLocalidades" id="localidadInput" placeholder="Ej: Conesa..." disabled>
+            <datalist id="listaLocalidades"></datalist>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('simple')">Proporcional Simple</button>
+        <button class="tab-btn" onclick="switchTab('cambio')">Cambio / Mejora de Plan</button>
+    </div>
+
+    <div id="panel-simple" class="panel active">
+        <h2>Cobro de Días Utilizados</h2>
+        <div class="grid-2">
+            <div class="form-group">
+                <label for="planSimple">Plan</label>
+                <select id="planSimple" disabled><option value="">Seleccione Localidad primero</option></select>
+            </div>
+            <div class="form-group">
+                <label for="diasUsoSimple">Días de uso del servicio</label>
+                <input type="number" id="diasUsoSimple" min="1" max="31" placeholder="Ej: 15" disabled>
+            </div>
+        </div>
+        <button class="btn-calc" onclick="calcularSimple()" id="btnSimple" disabled>Calcular Proporcional</button>
+    </div>
+
+    <div id="panel-cambio" class="panel">
+        <h2>Prorrateo por Cambio de Plan</h2>
+        <div class="info-badge">El cliente usó el Plan Viejo unos días, y luego cambió al Plan Nuevo.</div>
+        
+        <div class="grid-2" style="border-bottom: 1px solid #ddd; padding-bottom: 15px; margin-bottom: 15px;">
+            <div class="form-group">
+                <label for="planViejo">Plan VIEJO (Hasta el día del cambio)</label>
+                <select id="planViejo" disabled><option value="">Seleccione Localidad</option></select>
+            </div>
+            <div class="form-group">
+                <label for="diasViejo">Días de uso (Plan Viejo)</label>
+                <input type="number" id="diasViejo" min="1" max="31" placeholder="Ej: 15" disabled oninput="autoCalcDiasNuevo()">
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label for="planNuevo">Plan NUEVO (Desde el cambio)</label>
+                <select id="planNuevo" disabled><option value="">Seleccione Localidad</option></select>
+            </div>
+            <div class="form-group">
+                <label for="diasNuevo">Días de uso (Plan Nuevo)</label>
+                <input type="number" id="diasNuevo" min="1" max="31" placeholder="Calculado auto" disabled>
+            </div>
+        </div>
+        <button class="btn-calc" onclick="calcularCambio()" id="btnCambio" disabled>Calcular Suma Proporcional</button>
+    </div>
+
+    <div id="resultadoBox" class="result-box">
+        <div>Total a Facturar al Cliente Final</div>
+        <div class="result-price" id="resultadoMonto">$0.00</div>
+        <div class="result-detail" id="resultadoDetalle"></div>
+    </div>
+</div>
+
+<script>
+    // Estado global de la aplicación
+    let excelDB = []; 
+    let diasDelMesActual = 30;
+
+    // Elementos DOM
+    const excelUpload = document.getElementById('excelUpload');
+    const fileStatus = document.getElementById('fileStatus');
+    const mesFacturacion = document.getElementById('mesFacturacion');
+    const diasMesInfo = document.getElementById('diasMesInfo');
+    const localidadInput = document.getElementById('localidadInput');
+    const listaLocalidades = document.getElementById('listaLocalidades');
+    const planSimple = document.getElementById('planSimple');
+    const planViejo = document.getElementById('planViejo');
+    const planNuevo = document.getElementById('planNuevo');
+    const inputsToEnable = ['localidadInput', 'diasUsoSimple', 'diasViejo', 'diasNuevo', 'btnSimple', 'btnCambio'];
+
+    // Inicializar Mes Actual por defecto
+    const hoy = new Date();
+    mesFacturacion.value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    actualizarDiasMes();
+
+    // Event Listeners
+    mesFacturacion.addEventListener('change', actualizarDiasMes);
+    
+    excelUpload.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+
+        fileStatus.innerHTML = "Procesando archivo, por favor espere...";
+        
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            try {
+                const data = evt.target.result;
+                const workbook = XLSX.read(data, {type: 'binary'});
+                
+                // Buscar la hoja que contenga "DATA" o usar la primera por defecto
+                const sheetName = workbook.SheetNames.find(n => n.toUpperCase().includes('DATA')) || workbook.SheetNames[0];
+                const rawJson = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+
+                procesarDatosExcel(rawJson);
+                fileStatus.innerHTML = `<span style="color: green;">✓ Archivo cargado correctamente. Hoja utilizada: ${sheetName}</span>`;
+                habilitarFiltros();
+            } catch (error) {
+                fileStatus.innerHTML = `<span style="color: red;">Error al leer el archivo. Asegúrese de que tenga el formato correcto.</span>`;
+                console.error(error);
+            }
+        };
+        reader.readAsBinaryString(file);
+    });
+
+    localidadInput.addEventListener('change', (e) => llenarPlanes(e.target.value));
+
+    // Lógica principal
+    function actualizarDiasMes() {
+        const [year, month] = mesFacturacion.value.split('-');
+        if(year && month) {
+            diasDelMesActual = new Date(year, month, 0).getDate();
+            diasMesInfo.innerText = `Días del mes: ${diasDelMesActual} días (Base cálculo)`;
+            autoCalcDiasNuevo(); // Recalcular si cambian de mes
+        }
+    }
+
+    function procesarDatosExcel(json) {
+        excelDB = [];
+        const localidadesSet = new Set();
+
+        json.forEach(row => {
+            // Normalizar nombres de columnas ignorando mayúsculas y espacios extra
+            const getCol = (name) => {
+                const key = Object.keys(row).find(k => k.trim().toUpperCase() === name.toUpperCase());
+                return row[key];
+            };
+
+            const localidad = getCol('Localidad');
+            const plan = getCol('Plan');
+            const abonoFinal = getCol('Abono CLIENTE FINAL');
+            const tech = getCol('Tecnologia') || getCol('Tecnología'); // Fallback por tilde
+
+            if(localidad && plan && abonoFinal !== "") {
+                excelDB.push({
+                    localidad: String(localidad).trim().toUpperCase(),
+                    plan: String(plan).trim(),
+                    tecnologia: tech ? String(tech).trim() : '',
+                    precio: parseFloat(abonoFinal) || 0
+                });
+                localidadesSet.add(String(localidad).trim().toUpperCase());
+            }
+        });
+
+        // Poblar Datalist de Localidades
+        listaLocalidades.innerHTML = '';
+        Array.from(localidadesSet).sort().forEach(loc => {
+            const option = document.createElement('option');
+            option.value = loc;
+            listaLocalidades.appendChild(option);
+        });
+    }
+
+    function habilitarFiltros() {
+        inputsToEnable.forEach(id => document.getElementById(id).removeAttribute('disabled'));
+    }
+
+    function llenarPlanes(localidadSeleccionada) {
+        const selectPlan = [planSimple, planViejo, planNuevo];
+        localidadSeleccionada = localidadSeleccionada.trim().toUpperCase();
+
+        const planesLocalidad = excelDB.filter(item => item.localidad === localidadSeleccionada);
+        
+        if(planesLocalidad.length === 0) return;
+
+        let optionsHTML = '<option value="">Seleccione un plan...</option>';
+        planesLocalidad.forEach(item => {
+            // Incluye tecnología y precio para ayudar al usuario a elegir correctamente
+            const techBadge = item.tecnologia ? `[${item.tecnologia}] ` : '';
+            optionsHTML += `<option value="${item.precio}">${techBadge}${item.plan} - $${item.precio}</option>`;
+        });
+
+        selectPlan.forEach(select => {
+            select.innerHTML = optionsHTML;
+            select.removeAttribute('disabled');
+        });
+    }
+
+    // Calculadoras
+    function formatearDinero(monto) {
+        return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
+    }
+
+    function mostrarResultado(monto, detalle) {
+        const box = document.getElementById('resultadoBox');
+        document.getElementById('resultadoMonto').innerText = formatearDinero(monto);
+        document.getElementById('resultadoDetalle').innerText = detalle;
+        box.style.display = 'block';
+    }
+
+    function calcularSimple() {
+        const precioSelect = parseFloat(planSimple.value);
+        const dias = parseInt(document.getElementById('diasUsoSimple').value);
+
+        if(!precioSelect || isNaN(dias) || dias <= 0) {
+            alert("Por favor seleccione un plan e ingrese una cantidad de días válida.");
+            return;
+        }
+
+        const valorDiario = precioSelect / diasDelMesActual;
+        const total = valorDiario * dias;
+
+        mostrarResultado(total, `Cálculo: ($${precioSelect} / ${diasDelMesActual} días) x ${dias} días de uso`);
+    }
+
+    function autoCalcDiasNuevo() {
+        const diasViejo = parseInt(document.getElementById('diasViejo').value) || 0;
+        const inputNuevo = document.getElementById('diasNuevo');
+        
+        if(diasViejo > 0 && diasViejo <= diasDelMesActual) {
+            inputNuevo.value = diasDelMesActual - diasViejo;
+        } else {
+            inputNuevo.value = "";
+        }
+    }
+
+    function calcularCambio() {
+        const precioViejo = parseFloat(planViejo.value);
+        const precioNuevo = parseFloat(planNuevo.value);
+        const diasV = parseInt(document.getElementById('diasViejo').value);
+        const diasN = parseInt(document.getElementById('diasNuevo').value);
+
+        if(!precioViejo || !precioNuevo || isNaN(diasV) || isNaN(diasN)) {
+            alert("Por favor complete todos los planes y días para el prorrateo.");
+            return;
+        }
+
+        const valorDiarioViejo = precioViejo / diasDelMesActual;
+        const valorDiarioNuevo = precioNuevo / diasDelMesActual;
+
+        const subtotalViejo = valorDiarioViejo * diasV;
+        const subtotalNuevo = valorDiarioNuevo * diasN;
+        const total = subtotalViejo + subtotalNuevo;
+
+        const detalle = `Plan Viejo: ${diasV} días ($${subtotalViejo.toFixed(2)}) + Plan Nuevo: ${diasN} días ($${subtotalNuevo.toFixed(2)})`;
+        mostrarResultado(total, detalle);
+    }
+
+    // Pestañas UI
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(panel => panel.classList.remove('active'));
+        
+        event.target.classList.add('active');
+        document.getElementById('panel-' + tabId).classList.add('active');
+        document.getElementById('resultadoBox').style.display = 'none'; // ocultar resultado anterior
+    }
+</script>
+
+</body>
+</html>
