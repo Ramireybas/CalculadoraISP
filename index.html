@@ -31,7 +31,7 @@
             border-radius: 12px;
             box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
             width: 100%;
-            max-width: 800px;
+            max-width: 850px;
         }
 
         h1 { font-size: 1.5rem; margin-top: 0; border-bottom: 2px solid var(--border); padding-bottom: 10px; }
@@ -59,6 +59,11 @@
         }
 
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1.2fr 1.5fr; gap: 15px; }
+
+        @media (max-width: 768px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+        }
 
         .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
         .tab-btn {
@@ -102,14 +107,21 @@
         <small id="fileStatus" style="color: #64748b; margin-top: 5px;">Esperando archivo...</small>
     </div>
 
-    <div class="grid-2">
+    <div class="grid-3">
         <div class="form-group">
-            <label for="mesFacturacion">2. Mes de Facturación</label>
+            <label for="mesFacturacion">2. Mes Facturación</label>
             <input type="month" id="mesFacturacion" required>
-            <small id="diasMesInfo" style="color: #64748b; margin-top: 5px;">Días del mes: -</small>
+            <small id="diasMesInfo" style="color: #64748b; margin-top: 5px;">Días: -</small>
         </div>
         <div class="form-group">
-            <label for="localidadInput">3. Localidad (Escriba para buscar)</label>
+            <label for="tipoCliente">3. Tipo de Cliente</label>
+            <select id="tipoCliente" disabled>
+                <option value="final" selected>Cliente Final (Predeterminado)</option>
+                <option value="comercial">Cliente Comercial</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="localidadInput">4. Localidad (Buscar)</label>
             <input list="listaLocalidades" id="localidadInput" placeholder="Ej: Conesa..." disabled>
             <datalist id="listaLocalidades"></datalist>
         </div>
@@ -124,7 +136,7 @@
         <h2>Cobro de Días Utilizados</h2>
         <div class="grid-2">
             <div class="form-group">
-                <label for="planSimple">Plan</label>
+                <label for="planSimple">Plan Seleccionado</label>
                 <select id="planSimple" disabled><option value="">Seleccione Localidad primero</option></select>
             </div>
             <div class="form-group">
@@ -164,7 +176,7 @@
     </div>
 
     <div id="resultadoBox" class="result-box">
-        <div>Total a Facturar al Cliente Final</div>
+        <div>Total a Facturar al Cliente</div>
         <div class="result-price" id="resultadoMonto">$0.00</div>
         <div class="result-detail" id="resultadoDetalle"></div>
     </div>
@@ -180,12 +192,14 @@
     const fileStatus = document.getElementById('fileStatus');
     const mesFacturacion = document.getElementById('mesFacturacion');
     const diasMesInfo = document.getElementById('diasMesInfo');
+    const tipoCliente = document.getElementById('tipoCliente');
     const localidadInput = document.getElementById('localidadInput');
     const listaLocalidades = document.getElementById('listaLocalidades');
     const planSimple = document.getElementById('planSimple');
     const planViejo = document.getElementById('planViejo');
     const planNuevo = document.getElementById('planNuevo');
-    const inputsToEnable = ['localidadInput', 'diasUsoSimple', 'diasViejo', 'diasNuevo', 'btnSimple', 'btnCambio'];
+    
+    const inputsToEnable = ['tipoCliente', 'localidadInput', 'diasUsoSimple', 'diasViejo', 'diasNuevo', 'btnSimple', 'btnCambio'];
 
     // Inicializar Mes Actual por defecto
     const hoy = new Date();
@@ -195,6 +209,11 @@
     // Event Listeners
     mesFacturacion.addEventListener('change', actualizarDiasMes);
     
+    // Si cambian el tipo de cliente, recargar los planes para actualizar los precios
+    tipoCliente.addEventListener('change', () => {
+        if(localidadInput.value) llenarPlanes(localidadInput.value);
+    });
+
     excelUpload.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if(!file) return;
@@ -207,7 +226,7 @@
                 const data = evt.target.result;
                 const workbook = XLSX.read(data, {type: 'binary'});
                 
-                // Buscar la hoja que contenga "DATA" o usar la primera por defecto
+                // Buscar la hoja DATA
                 const sheetName = workbook.SheetNames.find(n => n.toUpperCase().includes('DATA')) || workbook.SheetNames[0];
                 const rawJson = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
 
@@ -215,7 +234,7 @@
                 fileStatus.innerHTML = `<span style="color: green;">✓ Archivo cargado correctamente. Hoja utilizada: ${sheetName}</span>`;
                 habilitarFiltros();
             } catch (error) {
-                fileStatus.innerHTML = `<span style="color: red;">Error al leer el archivo. Asegúrese de que tenga el formato correcto.</span>`;
+                fileStatus.innerHTML = `<span style="color: red;">Error al leer el archivo. Verifique el formato.</span>`;
                 console.error(error);
             }
         };
@@ -229,8 +248,8 @@
         const [year, month] = mesFacturacion.value.split('-');
         if(year && month) {
             diasDelMesActual = new Date(year, month, 0).getDate();
-            diasMesInfo.innerText = `Días del mes: ${diasDelMesActual} días (Base cálculo)`;
-            autoCalcDiasNuevo(); // Recalcular si cambian de mes
+            diasMesInfo.innerText = `Días del mes: ${diasDelMesActual}`;
+            autoCalcDiasNuevo();
         }
     }
 
@@ -239,7 +258,6 @@
         const localidadesSet = new Set();
 
         json.forEach(row => {
-            // Normalizar nombres de columnas ignorando mayúsculas y espacios extra
             const getCol = (name) => {
                 const key = Object.keys(row).find(k => k.trim().toUpperCase() === name.toUpperCase());
                 return row[key];
@@ -248,14 +266,16 @@
             const localidad = getCol('Localidad');
             const plan = getCol('Plan');
             const abonoFinal = getCol('Abono CLIENTE FINAL');
-            const tech = getCol('Tecnologia') || getCol('Tecnología'); // Fallback por tilde
+            const abonoComercial = getCol('Abono CLIENTE COMERCIAL'); // Nueva columna
+            const tech = getCol('Tecnologia') || getCol('Tecnología'); 
 
-            if(localidad && plan && abonoFinal !== "") {
+            if(localidad && plan) {
                 excelDB.push({
                     localidad: String(localidad).trim().toUpperCase(),
                     plan: String(plan).trim(),
                     tecnologia: tech ? String(tech).trim() : '',
-                    precio: parseFloat(abonoFinal) || 0
+                    precioFinal: parseFloat(abonoFinal) || 0,
+                    precioComercial: parseFloat(abonoComercial) || 0
                 });
                 localidadesSet.add(String(localidad).trim().toUpperCase());
             }
@@ -277,6 +297,9 @@
     function llenarPlanes(localidadSeleccionada) {
         const selectPlan = [planSimple, planViejo, planNuevo];
         localidadSeleccionada = localidadSeleccionada.trim().toUpperCase();
+        
+        // Saber si buscar en la columna Comercial o Final
+        const tipoSeleccionado = tipoCliente.value;
 
         const planesLocalidad = excelDB.filter(item => item.localidad === localidadSeleccionada);
         
@@ -284,9 +307,14 @@
 
         let optionsHTML = '<option value="">Seleccione un plan...</option>';
         planesLocalidad.forEach(item => {
-            // Incluye tecnología y precio para ayudar al usuario a elegir correctamente
-            const techBadge = item.tecnologia ? `[${item.tecnologia}] ` : '';
-            optionsHTML += `<option value="${item.precio}">${techBadge}${item.plan} - $${item.precio}</option>`;
+            // Decidir qué precio usar en base al selector
+            const precio = tipoSeleccionado === 'comercial' ? item.precioComercial : item.precioFinal;
+            
+            // Solo dibujamos la opcion si tiene un precio mayor a 0 para el tipo seleccionado
+            if(precio > 0) {
+                const techBadge = item.tecnologia ? `[${item.tecnologia}] ` : '';
+                optionsHTML += `<option value="${precio}">${techBadge}${item.plan} - $${precio}</option>`;
+            }
         });
 
         selectPlan.forEach(select => {
@@ -295,7 +323,7 @@
         });
     }
 
-    // Calculadoras
+    // Funciones de Cálculo
     function formatearDinero(monto) {
         return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(monto);
     }
@@ -310,6 +338,7 @@
     function calcularSimple() {
         const precioSelect = parseFloat(planSimple.value);
         const dias = parseInt(document.getElementById('diasUsoSimple').value);
+        const tipoText = tipoCliente.options[tipoCliente.selectedIndex].text;
 
         if(!precioSelect || isNaN(dias) || dias <= 0) {
             alert("Por favor seleccione un plan e ingrese una cantidad de días válida.");
@@ -319,7 +348,7 @@
         const valorDiario = precioSelect / diasDelMesActual;
         const total = valorDiario * dias;
 
-        mostrarResultado(total, `Cálculo: ($${precioSelect} / ${diasDelMesActual} días) x ${dias} días de uso`);
+        mostrarResultado(total, `(${tipoText}) Cálculo: ($${precioSelect} / ${diasDelMesActual} días) x ${dias} días`);
     }
 
     function autoCalcDiasNuevo() {
@@ -338,6 +367,7 @@
         const precioNuevo = parseFloat(planNuevo.value);
         const diasV = parseInt(document.getElementById('diasViejo').value);
         const diasN = parseInt(document.getElementById('diasNuevo').value);
+        const tipoText = tipoCliente.options[tipoCliente.selectedIndex].text;
 
         if(!precioViejo || !precioNuevo || isNaN(diasV) || isNaN(diasN)) {
             alert("Por favor complete todos los planes y días para el prorrateo.");
@@ -351,7 +381,7 @@
         const subtotalNuevo = valorDiarioNuevo * diasN;
         const total = subtotalViejo + subtotalNuevo;
 
-        const detalle = `Plan Viejo: ${diasV} días ($${subtotalViejo.toFixed(2)}) + Plan Nuevo: ${diasN} días ($${subtotalNuevo.toFixed(2)})`;
+        const detalle = `(${tipoText}) Plan Viejo: ${diasV} días ($${subtotalViejo.toFixed(2)}) + Plan Nuevo: ${diasN} días ($${subtotalNuevo.toFixed(2)})`;
         mostrarResultado(total, detalle);
     }
 
@@ -362,7 +392,7 @@
         
         event.target.classList.add('active');
         document.getElementById('panel-' + tabId).classList.add('active');
-        document.getElementById('resultadoBox').style.display = 'none'; // ocultar resultado anterior
+        document.getElementById('resultadoBox').style.display = 'none';
     }
 </script>
 
